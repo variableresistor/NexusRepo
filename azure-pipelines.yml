@@ -1,0 +1,50 @@
+name: 1.0.0
+trigger:
+  paths:
+    exclude:
+      - .github
+      - .vscode/*
+resources:
+  repositories:
+    - repository: YAML-Templates
+      type: github
+      endpoint: variableresistor
+      name: variableresistor/YAML-Templates
+pool:
+  name: Default
+variables:
+  ModuleName: NexusRepo
+
+steps:
+  - checkout: self
+    path: ${{variables.ModuleName}}
+
+  - pwsh: |
+      Import-Module ./$env:ModuleName
+      $Splat = @{
+        BaseUrl = $env:BaseUrl
+        APIVersion = "v1"
+        Credential = [pscredential]::new($env:UserCode,$($env:PassCode | ConvertTo-SecureString -AsPlainText -Force))
+        MaxPages   = 1
+      }
+      Connect-NexusIQ @Splat
+    displayName: 'Set up Nexus Repository connection profile'
+    env:
+      BaseUrl: https://nexus.myorg.com
+      ModuleName: ${{variables.ModuleName}}
+      PassCode: TestPassCode
+      UserCode: TestUserCode
+
+  - template: powershell/publish-module.yml@YAML-Templates
+    parameters:
+      ModuleName: ${{variables.ModuleName}}
+
+  - pwsh: |
+      $Separator = [System.IO.Path]::DirectorySeparatorChar
+      "$env:APPDATA$Separator$env:ModuleName" | Remove-Item -Recurse -Verbose
+      git reset --hard && git clean -ffdx
+    displayName: 'Remove the credentials and reset the workspace'
+    condition: always()
+    workingDirectory: $(Pipeline.Workspace)/${{variables.ModuleName}}
+    env:
+      ModuleName: ${{variables.ModuleName}}
