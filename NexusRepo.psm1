@@ -34,7 +34,7 @@ filter Connect-NexusRepo
         [NexusRepoAPIVersion]$APIVersion = "v1",
 
         [Parameter(ValueFromPipeline,ValueFromPipelineByPropertyName)]
-        [ushort]$MaxPages = 0
+        [uint]$MaxPages = 0
     )
     if (-not (Test-Path ([NexusRepoSettings]::SaveDir))) { New-Item -Type Directory -Path ([NexusRepoSettings]::SaveDir) | Out-Null }
     else { Write-Verbose "Profile folder already existed" }
@@ -85,10 +85,23 @@ filter Invoke-NexusRepoAPI
         [Parameter(Mandatory)]
         [String]$Path,
         [Microsoft.PowerShell.Commands.WebRequestMethod]$Method = "Get",
-        [Hashtable]$Parameters
+        [Hashtable]$Parameters,
+        [string]$OutFile,
+        [ValidateSet("REST","Download")]
+        [string]$RequestType = "REST",
+        [string]$ContentType
     )
     $Settings = Get-NexusRepoSettings
-    $StringBuilder = [System.Text.StringBuilder]::new("$($Settings.BaseUrl)service/rest/$($Settings.APIVersion)/$Path")
+    $StringBuilder = [System.Text.StringBuilder]::new($Settings.BaseUrl)
+    switch ($RequestType)
+    {
+        "REST" {
+            $StringBuilder.Append("service/rest/$($Settings.APIVersion)/$Path") | Out-Null
+        }
+        "Download" {
+            $StringBuilder.Append($Path) | Out-Null
+        }
+    }
 
     if ($Parameters)
     {
@@ -102,8 +115,8 @@ filter Invoke-NexusRepoAPI
     Write-Verbose "Invoking Url $Uri"
 
     $Splat = @{
-        Uri=$Uri
-        Method=$Method
+        Uri           = $Uri
+        Method        = $Method
     }
     if ($PSEdition -eq "Core")
     {
@@ -112,11 +125,10 @@ filter Invoke-NexusRepoAPI
     }
     else
     {
-        $Pair = "$($Settings.Username):$($Settings.Credential.GetNetworkCredential().Password)"
-        $EncodedCreds = [System.Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes($Pair))
-        $Headers = @{ Authorization = "Basic $EncodedCreds" }
-        $Splat.Add("Headers",$Headers)
+        $Splat.Add("Headers",(Format-AuthHeaders -Credential $Settings.Credential))
     }
+    if ($OutFile) { $Splat.Add("OutFile",$OutFile) }
+    if ($ContentType) { $Splat.Add("ContentType",$ContentType) }
 
     $Response = Invoke-RestMethod @Splat
     if ($Response | Get-Member -Name continuationToken -ErrorAction Ignore)
@@ -134,18 +146,34 @@ filter Invoke-NexusRepoAPI
     else { $Response }
 }
 
+<#
+.SYNOPSIS
+    Used for Windows PowerShell to construct and return the authentication header
+#>
+filter Format-AuthHeaders
+{
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
+        [pscredential]$Credential
+    )
+    $Pair = "$($Credential.Username):$($Credential.GetNetworkCredential().Password)"
+    $EncodedCreds = [System.Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes($Pair))
+    @{ Authorization = "Basic $EncodedCreds" }
+}
+
 class NexusRepoSettings
 {
-    static [String]$SaveDir = "$env:APPDATA$Separator`NexusRepo"
+    static [String]$SaveDir = "$env:APPDATA$Separator`PoshNexusRepo"
     static [String]$SavePath = "$([NexusRepoSettings]::SaveDir)$Separator`Auth.xml"
 
     # Parameters
     [String]$BaseUrl
     [PSCredential]$Credential
     [NexusRepoAPIVersion]$APIVersion
-    [ushort]$MaxPages
+    [uint]$MaxPages
 
-    NexusRepoSettings([PSCredential]$Credential,[uri]$BaseUrl,[NexusRepoAPIVersion]$APIVersion,[ushort]$MaxPages)
+    NexusRepoSettings([PSCredential]$Credential,[uri]$BaseUrl,[NexusRepoAPIVersion]$APIVersion,[uint]$MaxPages)
     {
         $this.BaseUrl = $BaseUrl
         $this.Credential = $Credential
@@ -204,18 +232,18 @@ function Get-NexusRepoRepository
 #>
 filter Get-NexusRepoAsset
 {
-    [CmdletBinding(DefaultParameterSetName="Name")]
+    [CmdletBinding(DefaultParameterSetName="Id")]
     param (
         [Parameter(Mandatory,ValueFromPipelineByPropertyName,ParameterSetName="Name")]
-        [Alias("RepositoryName")]
-        [string[]]$Name,
+        [Alias("Name")]
+        [string[]]$Repository,
 
         [Parameter(Mandatory,ValueFromPipelineByPropertyName,ParameterSetName="Id")]
         [string[]]$Id
     )
-    if ($Name)
+    if ($Repository)
     {
-        foreach ($RepoName in $Name)
+        foreach ($RepoName in $Repository)
         {
             Invoke-NexusRepoAPI -Path "assets" -Parameters @{ repository=$RepoName }
         }
@@ -248,6 +276,8 @@ filter Get-NexusRepoAsset
     NuGet id
 .PARAMETER Sha1
     Specific SHA-1 hash of component's asset
+.LINK
+    https://help.sonatype.com/repomanager3/integrations/rest-and-integration-api/search-api
 #>
 filter Find-NexusRepoAsset
 {
@@ -299,6 +329,83 @@ filter Remove-NexusRepoAsset
         if ($PSCmdlet.ShouldProcess($AssetId))
         {
             Invoke-NexusRepoAPI -Path "assets/$AssetId" -Method Delete
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+    Search for one asset and then redirect the request to the downloadUrl of that asset, then downloads the asset.
+.PARAMETER downloadUrl
+    A property of the Raw artifact type.
+.LINK
+    https://help.sonatype.com/repomanager3/integrations/rest-and-integration-api/search-api
+.EXAMPLE
+    Request-NexusRepoAsset -Name 
+#>
+filter Request-NexusRepoAsset
+{
+    [CmdletBinding()]
+    [OutputType("System.IO.FileInfo")]
+    param (
+        [Parameter(ValueFromPipelineByPropertyName,Mandatory)]
+        [string]$downloadUrl,
+
+        [Parameter(ValueFromPipelineByPropertyName,Mandatory)]
+        [ValidateSet("raw","nuget","maven2","npm","pypi")]
+        [string]$Format,
+
+        [Parameter(Mandatory)]
+        [string]$OutFolder
+    )
+    $UriPath = ([uri]($downloadUrl)).LocalPath.Remove(0,1)
+    $FullPath = $(
+        switch ($Format)
+        {
+            "nuget" { "$OutFolder$Separator$([System.IO.Path]::GetFileName($downloadUrl)).nupkg" }
+            default { "$OutFolder$Separator$([System.IO.Path]::GetFileName($downloadUrl))" }
+        }
+    )
+    Invoke-NexusRepoAPI -Path $UriPath -OutFile $FullPath -RequestType Download
+    if (Test-Path $FullPath)
+    {
+        Get-ItemProperty $FullPath
+    }
+}
+
+<#
+.SYNOPSIS
+    Iterates through a listing of components contained in a given repository or allows us to get the details of an individual asset.
+.PARAMETER Name
+    Name of the repository
+.PARAMETER Id
+    Id of the component. This can be retrieved from Get-NexusRepoComponent with the name parameter.
+.LINK
+    https://help.sonatype.com/repomanager3/integrations/rest-and-integration-api/components-api#ComponentsAPI-ListComponents
+#>
+filter Get-NexusRepoComponent
+{
+    [CmdletBinding(DefaultParameterSetName="Id")]
+    param (
+        [Parameter(Mandatory,ValueFromPipelineByPropertyName,ParameterSetName="RepoName")]
+        [Alias("RepositoryName")]
+        [string[]]$Repository,
+
+        [Parameter(Mandatory,ValueFromPipelineByPropertyName,ParameterSetName="Id")]
+        [string[]]$Id
+    )
+    if ($Repository)
+    {
+        foreach ($RepoName in $Repository)
+        {
+            Invoke-NexusRepoAPI -Path "components" -Parameters @{ repository=$RepoName }
+        }
+    }
+    elseif ($Id)
+    {
+        foreach ($ComponentId in $Id)
+        {
+            Invoke-NexusRepoAPI -Path "components/$ComponentId"
         }
     }
 }

@@ -5,18 +5,18 @@ param ()
 
 BeforeAll {
     $Separator = [System.IO.Path]::DirectorySeparatorChar
-    Import-Module "$PSScriptRoot$Separator`NexusRepo.psd1" -Force
-    $SaveDir = "$env:APPDATA$Separator`NexusRepo"
+    Import-Module "$PSScriptRoot$Separator`PoshNexusRepo.psm1" -Force
+    $SaveDir = "$env:APPDATA$Separator`PoshNexusRepo"
     $AuthXmlPath = "$SaveDir$Separator`Auth.xml"
 
-    [uri]$BaseUrl = "https://nexus.mycompany.com"
+    [uri]$BaseUrl = "https://nexus.cityntl.com"
 
     if (-not (Test-Path -Path $AuthXmlPath))
     {
-        Connect-NexusRepo -BaseUrl $BaseUrl -APIVersion v2 | Out-Null
+        Connect-NexusRepo -BaseUrl $BaseUrl -APIVersion v1 | Out-Null
     }
     $Settings = Import-Clixml -Path $AuthXmlPath
-    $Settings | Connect-NexusRepo -MaxPages 2 | Out-Null
+    $Settings | Connect-NexusRepo -MaxPages 1 | Out-Null # We only need a single result
 }
 
 Describe "Connect-NexusRepo or Save-NexusRepoLogin" {
@@ -86,9 +86,9 @@ Describe "Get-NexusRepoRepository" {
         $Result[0].name | Should -BeLike "Test-*"
     }
     It "Retrieves a repo using the pipeline" {
-        $Result = "Test-nuget-hosted-dev","Test-nuget-hosted-prod" | Get-NexusRepoRepository
+        $Result = "Test-nuget-hosted","Test-nuget-hosted-prod" | Get-NexusRepoRepository
         $Result | Should -HaveCount 2
-        $Result[0].name | Should -Be "Test-nuget-hosted-dev"
+        $Result[0].name | Should -Be "Test-nuget-hosted"
         $Result[1].name | Should -Be "Test-nuget-hosted-prod"
     }
 }
@@ -97,14 +97,17 @@ Describe "Get-NexusRepoAsset" {
     BeforeAll {
         $Settings = Get-NexusRepoSettings
     }
-    Context "Name parameter" {
+    Context "Repository parameter" {
         BeforeAll {
             $Settings | Connect-NexusRepo -MaxPages 2 | Out-Null
         }
         It "Returns some assets given a repository name" {
-            $Result = Get-NexusRepoAsset -Name "Test-raw-hosted-dev"
+            $Result = Get-NexusRepoAsset -Repository "Test-raw-hosted"
             $Result | Should -Not -BeNullOrEmpty
             $Result | Should -HaveCount 20
+        }
+        AfterAll {
+            $Settings | Connect-NexusRepo -MaxPages 1 | Out-Null
         }
     }
     Context "Id parameter" {
@@ -115,7 +118,7 @@ Describe "Get-NexusRepoAsset" {
             }
         }
         It "Retrieves an asset" {
-            $Assets = Get-NexusRepoAsset -Name "Test-raw-hosted-dev"
+            $Assets = Get-NexusRepoAsset -Repository "Test-raw-hosted"
             $Assets | Should -Not -BeNullOrEmpty
             $Result = Get-NexusRepoAsset -Id $Assets[0].Id
             $Result | Should -Not -BeNullOrEmpty
@@ -124,7 +127,7 @@ Describe "Get-NexusRepoAsset" {
             $Result.format | Should -Be "raw"
         }
         It "Retrieves an asset using the pipeline" {
-            $Assets = Get-NexusRepoAsset -Name "Test-raw-hosted-dev"
+            $Assets = Get-NexusRepoAsset -Repository "Test-raw-hosted"
             $Assets | Should -Not -BeNullOrEmpty
             $Result = $Assets[0] | Get-NexusRepoAsset
             $Result | Should -Not -BeNullOrEmpty
@@ -139,21 +142,15 @@ Describe "Get-NexusRepoAsset" {
 }
 
 Describe "Find-NexusRepoAsset" {
-    BeforeAll {
-        if ((Get-NexusRepoSettings).MaxPages -ne 1)
-        {
-            $Settings | Connect-NexusRepo -MaxPages 1 | Out-Null # We only need a single result
-        }
-    }
     It "Searches for and returns some based on a format" {
-        $Result = Find-NexusRepoAsset -Repository "Test-raw-hosted-dev" -Format raw
+        $Result = Find-NexusRepoAsset -Repository "Test-raw-hosted" -Format raw
         $Result | Should -Not -BeNullOrEmpty
         $Result[0].format | Should -Be "raw"
     }
     It "Searches for and returns some based on a some NuGet properties" {
-        $Assets = Get-NexusRepoAsset -Name "Test-nuget-hosted-dev"
+        $Assets = Get-NexusRepoAsset -Repository "Test-nuget-hosted"
         $Splat = @{
-            Repository = "Test-nuget-hosted-dev"
+            Repository = "Test-nuget-hosted"
             Version    = $Assets[0].nuget.version
             NuGetId    = $Assets[0].nuget.id
         }
@@ -168,18 +165,102 @@ Describe "Find-NexusRepoAsset" {
 
 Describe "Remove-NexusRepoAsset" -Skip {
     BeforeAll {
-        if ((Get-NexusRepoSettings).MaxPages -ne 1)
-        {
-            $Settings | Connect-NexusRepo -MaxPages 1 | Out-Null # We only need a single result
-        }
-        $Assets = Get-NexusRepoAsset -Name "Test-raw-hosted-dev"
+        $Assets = Invoke-NexusRepoAPI -Path "assets" -Parameters @{ repository="Test-raw-hosted" } |
+        Select-Object -First 2
     }
     It "Removes the specified assets" {
-        $Assets[0],$Assets[1] | Remove-NexusRepoAsset -WhatIf
-        $Result = Find-NexusRepoAsset -Repository "Test-nuget-hosted-dev" -Sha1 $Assets[0].checksum.sha1
+        # $Assets[0],$Assets[1] | Remove-NexusRepoAsset -WhatIf
+        $Result = Find-NexusRepoAsset -Repository "Test-nuget-hosted" -Sha1 $Assets[0].checksum.sha1
         $Result | Should -BeNullOrEmpty
-        $Result = Find-NexusRepoAsset -Repository "Test-nuget-hosted-dev" -Sha1 $Assets[1].checksum.sha1
+        $Result = Find-NexusRepoAsset -Repository "Test-nuget-hosted" -Sha1 $Assets[1].checksum.sha1
         $Result | Should -BeNullOrEmpty
+    }
+}
+
+Describe "Request-NexusRepoAsset" {
+    Context "Raw artifact" {
+        BeforeAll {
+            $Asset = Invoke-NexusRepoAPI -Path "assets" -Parameters @{ repository="shared-nuget-hosted" } | Select-Object -First 1
+        }
+
+        It "Downloads the artifact to the specified directory" {
+            # Make sure that it actually returned something before running the tests
+            $Asset | Should -Not -BeNullOrEmpty
+            $Asset.downloadUrl | Should -Not -BeNullOrEmpty
+            $UriPath = [uri]($Asset.downloadUrl) | Select-Object -Expand LocalPath
+
+            # Run the tests
+            $Asset | Request-NexusRepoAsset -OutFolder "TestDrive:" | Out-Null
+            "TestDrive:/$([System.IO.Path]::GetFileName($Asset.downloadUrl))" | Should -Exist
+        }
+    }
+    Context "NuGet artifact" {
+        BeforeAll {
+            $Asset = Invoke-NexusRepoAPI -Path "assets" -Parameters @{ repository="shared-nuget-hosted" } | Select-Object -First 1
+        }
+        It "Downloads the package to the specified directory" {
+            $Asset | Should -Not -BeNullOrEmpty
+            $UriPath = [uri]($Asset.downloadUrl) | Select-Object -Expand LocalPath
+
+            $Asset | Request-NexusRepoAsset -OutFolder "TestDrive:" | Out-Null
+            "TestDrive:/$([System.IO.Path]::GetFileName($Asset.downloadUrl)).nupkg" | Should -Exist
+        }
+    }
+    Context "maven artifact" {
+        BeforeAll {
+            $Asset = Invoke-NexusRepoAPI -Path "assets" -Parameters @{ repository="shared-maven-hosted" } | Select-Object -First 1
+        }
+        It "Downloads the package to the specified directory" {
+            $Asset | Should -Not -BeNullOrEmpty
+            $UriPath = [uri]($Asset.downloadUrl) | Select-Object -Expand LocalPath
+
+            $Asset | Request-NexusRepoAsset -OutFolder "TestDrive:" | Out-Null
+            "TestDrive:/$([System.IO.Path]::GetFileName($Asset.downloadUrl))" | Should -Exist
+        }
+    }
+    Context "npm artifact" {
+        BeforeAll {
+            $Asset = Invoke-NexusRepoAPI -Path "assets" -Parameters @{ repository="shared-npm-hosted" } | Select-Object -First 1
+        }
+        It "Downloads the package to the specified directory" {
+            $Asset | Should -Not -BeNullOrEmpty
+            $UriPath = [uri]($Asset.downloadUrl) | Select-Object -Expand LocalPath
+
+            $Asset | Request-NexusRepoAsset -OutFolder "TestDrive:" | Out-Null
+            "TestDrive:/$([System.IO.Path]::GetFileName($Asset.downloadUrl))" | Should -Exist
+        }
+    }
+    Context "pypi artifact" {
+        BeforeAll {
+            $Asset = Invoke-NexusRepoAPI -Path "assets" -Parameters @{ repository="shared-pypi-hosted" } | Select-Object -First 1
+        }
+        It "Downloads the package to the specified directory" {
+            $Asset | Should -Not -BeNullOrEmpty
+            $UriPath = [uri]($Asset.downloadUrl) | Select-Object -Expand LocalPath
+
+            $Asset | Request-NexusRepoAsset -OutFolder "TestDrive:" | Out-Null
+            "TestDrive:/$([System.IO.Path]::GetFileName($Asset.downloadUrl))" | Should -Exist
+        }
+    }
+}
+
+Describe "Get-NexusRepoComponent" {
+    Context "Repo Name parameter" {
+        It "Retrieves some components" {
+            $Results = Get-NexusRepoComponent -RepositoryName "Test-nuget-hosted"
+            $Results | Should -Not -BeNullOrEmpty
+        }
+    }
+    Context "Component Id parameter" {
+        BeforeAll {
+            $Component = Invoke-NexusRepoAPI -Path "components" -Parameters @{ repository="Test-nuget-hosted" } |
+            Select-Object -First 1
+        }
+        It "Retrieves some components" {
+            $Result = $Component | Get-NexusRepoComponent
+            $Result | Should -HaveCount 1
+            $Result.id | Should -Be $Component.id
+        }
     }
 }
 
