@@ -29,7 +29,7 @@ Describe "Connect-NexusRepo or Save-NexusRepoLogin" {
         $Result.Credential | Should -Not -BeNullOrEmpty
         $Result.Credential.UserName | Should -Be $Settings.Credential.UserName
         $Result.APIVersion | Should -Be $Settings.APIVersion
-        $Result.MaxPages | Should -BeOfType [ushort]
+        $Result.MaxPages | Should -BeOfType [uint]
         $Result | Should -HaveCount 1
     }
     It "Saves their profile info by passing a credential from the pipeline" {
@@ -38,7 +38,7 @@ Describe "Connect-NexusRepo or Save-NexusRepoLogin" {
         $Result.Credential | Should -Not -BeNullOrEmpty
         $Result.Credential.UserName | Should -Be $Settings.Credential.UserName
         $Result.APIVersion | Should -Be $Settings.APIVersion
-        $Result.MaxPages | Should -BeOfType [ushort]
+        $Result.MaxPages | Should -BeOfType [uint]
         $Result.MaxPages | Should -Be 100
     }
 
@@ -72,7 +72,7 @@ Describe "Get-NexusRepoSettings" {
         $Settings.APIVersion.ToString() | Should -Be "v1"
         $Settings.BaseUrl | Should -Be $BaseUrl
         $Settings.Credential | Should -BeOfType PSCredential
-        $Settings.MaxPages | Should -BeOfType [ushort]
+        $Settings.MaxPages | Should -BeOfType [uint]
     }
 }
 
