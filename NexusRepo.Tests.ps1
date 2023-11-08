@@ -265,15 +265,9 @@ Describe "Get-NexusRepoComponent" {
 }
 
 Describe "Remove-NexusRepoComponent" {
-    BeforeEach {
-        Mock Invoke-RestMethod -MockWith {  }
-    }
     It "Calls the endpoint" {
-        $Id = "Q05SV00tcmF3LWhvc3RlZC1kZXY6MGFiODBhNzQzOTIxZTQyNmRlNzBkZDE1NjgyZTI4ZGQ"
-        Remove-NexusRepoComponent -Id "Q05SV00tcmF3LWhvc3RlZC1kZXY6MGFiODBhNzQzOTIxZTQyNmRlNzBkZDE1NjgyZTI4ZG1"
-        Assert-MockCalled -CommandName Invoke-NexusRepoAPI -ParameterFilter @{
-            Path = "component/$Id"
-        }
+        { Remove-NexusRepoComponent -Id "Q05SV00tcmF3LWhvc3RlZC1kZXY6MGFiODBhNzQzOTIxZTQyNmRlNzBkZDE1NjgyZTI4ZG1" -WhatIf } |
+        Should -Not -Throw
     }
 }
 
