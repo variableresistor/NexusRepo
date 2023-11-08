@@ -163,17 +163,19 @@ Describe "Find-NexusRepoAsset" {
     }
 }
 
-Describe "Remove-NexusRepoAsset" -Skip {
-    BeforeAll {
+Describe "Remove-NexusRepoAsset" {
+    It "Removes the specified assets" -Skip {
         $Assets = Invoke-NexusRepoAPI -Path "assets" -Parameters @{ repository="Test-raw-hosted" } |
         Select-Object -First 2
-    }
-    It "Removes the specified assets" {
         # $Assets[0],$Assets[1] | Remove-NexusRepoAsset -WhatIf
         $Result = Find-NexusRepoAsset -Repository "Test-nuget-hosted" -Sha1 $Assets[0].checksum.sha1
         $Result | Should -BeNullOrEmpty
         $Result = Find-NexusRepoAsset -Repository "Test-nuget-hosted" -Sha1 $Assets[1].checksum.sha1
         $Result | Should -BeNullOrEmpty
+    }
+    It "Run if an component object is passed from the pipeline" {
+        { Get-NexusRepoAsset -Repository Test-raw-hosted | Select-Object -First 1 |
+        Remove-NexusRepoComponent -WhatIf } | Should -Not -Throw
     }
 }
 
