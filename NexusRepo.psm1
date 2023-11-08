@@ -322,7 +322,7 @@ filter Remove-NexusRepoAsset
     [CmdletBinding(SupportsShouldProcess)]
     param (
         [Parameter(Mandatory,ValueFromPipelineByPropertyName)]
-        [uint[]]$Id
+        [string[]]$Id
     )
     foreach ($AssetId in $Id)
     {
