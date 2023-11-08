@@ -22,6 +22,7 @@ FunctionsToExport = @(
     "Get-NexusRepoAsset"
     "Test-NexusRepoStatus"
     "Remove-NexusRepoAsset"
+    "Remove-NexusRepoComponent"
 )
 CmdletsToExport = @()
 # VariablesToExport = '*'

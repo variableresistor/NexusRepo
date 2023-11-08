@@ -335,6 +335,30 @@ filter Remove-NexusRepoAsset
 
 <#
 .SYNOPSIS
+    Delete a single component and all its associated assests
+.PARAMETER Id
+    Id of the component to delete
+.LINK
+    https://help.sonatype.com/repomanager3/integrations/rest-and-integration-api/components-api#ComponentsAPI-DeleteComponent
+#>
+filter Remove-NexusRepoComponent
+{
+    [CmdletBinding(SupportsShouldProcess)]
+    param (
+        [Parameter(Mandatory,ValueFromPipelineByPropertyName)]
+        [string[]]$Id
+    )
+    foreach ($ComponentId in $Id)
+    {
+        if ($PSCmdlet.ShouldProcess($ComponentId))
+        {
+            Invoke-NexusRepoAPI -Path "component/$ComponentId" -Method Delete
+        }
+    }
+}
+
+<#
+.SYNOPSIS
     Search for one asset and then redirect the request to the downloadUrl of that asset, then downloads the asset.
 .PARAMETER downloadUrl
     A property of the Raw artifact type.
