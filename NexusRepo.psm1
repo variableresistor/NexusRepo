@@ -354,7 +354,7 @@ filter Remove-NexusRepoComponent
         if ($PSCmdlet.ShouldProcess($ComponentId))
         {
             Write-Verbose "Deleting Component with Id $ComponentId"
-            Invoke-NexusRepoAPI -Path "component/$ComponentId" -Method Delete
+            Invoke-NexusRepoAPI -Path "components/$ComponentId" -Method Delete
         }
     }
 }
