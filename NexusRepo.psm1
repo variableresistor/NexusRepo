@@ -328,6 +328,7 @@ filter Remove-NexusRepoAsset
     {
         if ($PSCmdlet.ShouldProcess($AssetId))
         {
+            Write-Verbose "Deleting Asset with Id $AssetId"
             Invoke-NexusRepoAPI -Path "assets/$AssetId" -Method Delete
         }
     }
@@ -352,6 +353,7 @@ filter Remove-NexusRepoComponent
     {
         if ($PSCmdlet.ShouldProcess($ComponentId))
         {
+            Write-Verbose "Deleting Component with Id $ComponentId"
             Invoke-NexusRepoAPI -Path "component/$ComponentId" -Method Delete
         }
     }
