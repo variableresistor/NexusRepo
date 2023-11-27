@@ -118,7 +118,7 @@ filter Invoke-NexusRepoAPI
         Uri           = $Uri
         Method        = $Method
     }
-    if ($PSEdition -eq "Core")
+    if ($PSVersionTable.PSVersion.Major -ge "6.0")
     {
         $Splat.Add("Authentication","Basic")
         $Splat.Add("Credential",$Settings.Credential)
